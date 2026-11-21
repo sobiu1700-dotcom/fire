@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>불꽃놀이</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #02030a;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    display: block;
+  }
+  #sky { z-index: 0; }
+  #fx  { z-index: 1; }
+
+  .title {
+    position: fixed;
+    top: 9%;
+    left: 0;
+    width: 100%;
+    z-index: 2;
+    text-align: center;
+    pointer-events: none;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    font-size: clamp(2.6rem, 11vw, 5.5rem);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #fff;
+    text-shadow:
+      0 0 12px rgba(255, 220, 140, 0.9),
+      0 0 32px rgba(255, 140, 80, 0.7),
+      0 0 60px rgba(255, 80, 120, 0.5);
+  }
+
+  .hint {
+    position: fixed;
+    bottom: calc(8% + env(safe-area-inset-bottom));
+    left: 0;
+    width: 100%;
+    z-index: 2;
+    text-align: center;
+    pointer-events: none;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    font-size: clamp(1rem, 4vw, 1.4rem);
+    color: rgba(255, 255, 255, 0.75);
+    animation: blink 2s ease-in-out infinite;
+    transition: opacity 0.8s;
+  }
+  .hint.hide { opacity: 0 !important; animation: none; }
+
+  @keyframes blink {
+    0%, 100% { opacity: 0.35; }
+    50%      { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="sky"></canvas>
+  <canvas id="fx"></canvas>
+  <h1 class="title">불꽃놀이</h1>
+  <p class="hint" id="hint">화면 아무 곳이나 터치해 보세요</p>
+
+<script>
+(function () {
+  var sky = document.getElementById('sky');
+  var fx  = document.getElementById('fx');
+  var sctx = sky.getContext('2d');
+  var ctx  = fx.getContext('2d');
+  var hint = document.getElementById('hint');
+
+  var W = 0, H = 0, dpr = 1;
+  var particles = [];
+  var flashes = [];
+  var MAX_PARTICLES = 1800;
+
+  /* ---------- 화면 크기 맞춤 + 밤하늘 그리기 ---------- */
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    [sky, fx].forEach(function (c) {
+      c.width  = Math.round(W * dpr);
+      c.height = Math.round(H * dpr);
+    });
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawSky();
+  }
+
+  function drawSky() {
+    var g = sctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#01020a');
+    g.addColorStop(0.6, '#070d27');
+    g.addColorStop(1, '#14173a');
+    sctx.fillStyle = g;
+    sctx.fillRect(0, 0, W, H);
+
+    var starCount = Math.round((W * H) / 6000);
+    for (var i = 0; i < starCount; i++) {
+      var x = Math.random() * W;
+      var y = Math.random() * H * 0.9;
+      var r = Math.random() * 1.2 + 0.2;
+      sctx.globalAlpha = Math.random() * 0.7 + 0.2;
+      sctx.fillStyle = '#ffffff';
+      sctx.beginPath();
+      sctx.arc(x, y, r, 0, Math.PI * 2);
+      sctx.fill();
+    }
+    sctx.globalAlpha = 1;
+  }
+
+  /* ---------- 불꽃 터뜨리기 ---------- */
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  function burst(x, y) {
+    var baseHue = Math.random() * 360;
+    var types = ['sphere', 'ring', 'double', 'rainbow'];
+    var type = types[Math.floor(Math.random() * types.length)];
+    var count = W < 600 ? 80 : 110;
+
+    flashes.push({ x: x, y: y, r: 6, life: 1, hue: baseHue });
+
+    function add(speed, hue, size) {
+      var angle = Math.random() * Math.PI * 2;
+      particles.push({
+        x: x, y: y, px: x, py: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        hue: hue,
+        size: size,
+        life: 1,
+        decay: rand(0.008, 0.016)
+      });
+    }
+    function addAt(angle, speed, hue, size) {
+      particles.push({
+        x: x, y: y, px: x, py: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        hue: hue,
+        size: size,
+        life: 1,
+        decay: rand(0.009, 0.015)
+      });
+    }
+
+    var i;
+    if (type === 'sphere') {
+      for (i = 0; i < count; i++) {
+        add(Math.sqrt(Math.random()) * 6.2 + 0.8, baseHue + rand(-25, 25), rand(1.4, 2.6));
+      }
+    } else if (type === 'ring') {
+      for (i = 0; i < count; i++) {
+        addAt((i / count) * Math.PI * 2, 5 + rand(-0.15, 0.15), baseHue + rand(-15, 15), 2.2);
+      }
+    } else if (type === 'double') {
+      var inner = Math.round(count * 0.45);
+      for (i = 0; i < count; i++) {
+        addAt((i / count) * Math.PI * 2, 6.2, baseHue, 2.2);
+      }
+      for (i = 0; i < inner; i++) {
+        addAt((i / inner) * Math.PI * 2 + 0.1, 3.2, baseHue + 60, 2);
+      }
+    } else {
+      for (i = 0; i < count; i++) {
+        add(Math.sqrt(Math.random()) * 6 + 1, Math.random() * 360, rand(1.4, 2.6));
+      }
+    }
+
+    if (particles.length > MAX_PARTICLES) {
+      particles.splice(0, particles.length - MAX_PARTICLES);
+    }
+  }
+
+  /* ---------- 애니메이션 ---------- */
+  var last = performance.now();
+
+  function frame(now) {
+    var dt = Math.min((now - last) / 16.67, 3);
+    last = now;
+
+    // 지난 잔상을 서서히 지움 (꼬리 효과)
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, ' + Math.min(0.22 * dt, 0.6) + ')';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+
+    // 터지는 순간의 번쩍임
+    for (var f = flashes.length - 1; f >= 0; f--) {
+      var fl = flashes[f];
+      fl.r += 9 * dt;
+      fl.life -= 0.09 * dt;
+      if (fl.life <= 0) { flashes.splice(f, 1); continue; }
+      var grad = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, fl.r);
+      grad.addColorStop(0, 'hsla(' + fl.hue + ',100%,90%,' + (fl.life * 0.8) + ')');
+      grad.addColorStop(1, 'hsla(' + fl.hue + ',100%,60%,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(fl.x, fl.y, fl.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 불꽃 입자
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.px = p.x;
+      p.py = p.y;
+      p.vx *= Math.pow(0.975, dt);
+      p.vy *= Math.pow(0.975, dt);
+      p.vy += 0.05 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= p.decay * dt;
+
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+
+      ctx.strokeStyle = 'hsla(' + p.hue + ',100%,' + (55 + p.life * 20) + '%,' + p.life + ')';
+      ctx.lineWidth = p.size * (0.5 + p.life * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(p.px, p.py);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- 클릭 / 터치 ---------- */
+  window.addEventListener('pointerdown', function (e) {
+    burst(e.clientX, e.clientY);
+    hint.classList.add('hide');
+  });
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', resize);
+  document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
